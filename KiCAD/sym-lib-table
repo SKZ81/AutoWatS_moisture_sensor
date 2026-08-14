@@ -1,0 +1,3 @@
+(sym_lib_table
+  (lib (name "AutoWatS_moisture-rescue")(type "Legacy")(uri "${KIPRJMOD}/AutoWatS_moisture-rescue.lib")(options "")(descr ""))
+)
