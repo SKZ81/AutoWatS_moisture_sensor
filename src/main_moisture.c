@@ -7,8 +7,8 @@
 #include <avr/sleep.h>
 #include <avr/pgmspace.h>
 
-#include "I2CSlave.h"
-#include "uart.h"
+#include "I2CSlave_state_machine.h"
+#include "avr_uart.h"
 
 #if !defined(DEBUG)
 #define DEBUG 1 // If unspecified, activate DEBUG by  default
@@ -40,26 +40,32 @@
 #define CHANNEL_CAPACITANCE_LOW    1
 #define CHANNEL_CHIP_TEMP 0b00001000
 
-#define TWI_WAKEUP                 0x00
-#define TWI_GET_CAPACITANCE        0x01
-#define TWI_GET_LIGHT              0x02
-#define TWI_RESET                  0x03
-#define TWI_GET_VERSION            0x04
-#define TWI_SLEEP                  0x05
-// #define TWI_SET_ADDRESS         0x06
-#define TWI_DEBUG_ENABLE_ADC       0x80
-#define TWI_DEBUG_POWER_ON         0x81
-#define TWI_DEBUG_START_EXITATION  0x82
-#define TWI_DEBUG_CAP_MEASUREMENT  0x83
-#define TWI_DEBUG_STOP_EXITATION   0x84
-#define TWI_DEBUG_POWER_OFF        0x85
-#define TWI_DEBUG_DISABLE_ADC      0x86
+#define I2C_BUFFER_SIZE            4
+
+#define I2C_WAKEUP                 0x00
+#define I2C_GET_CAPACITANCE        0x01
+#define I2C_GET_LIGHT              0x02
+#define I2C_RESET                  0x03
+#define I2C_GET_VERSION            0x04
+#define I2C_SLEEP                  0x05
+// #define I2C_SET_ADDRESS         0x06
+#define I2C_DEBUG_ENABLE_ADC       0x80
+#define I2C_DEBUG_POWER_ON         0x81
+#define I2C_DEBUG_START_EXCITATION 0x82
+#define I2C_DEBUG_CAP_MEASUREMENT  0x83
+#define I2C_DEBUG_STOP_EXITATION   0x84
+#define I2C_DEBUG_POWER_OFF        0x85
+#define I2C_DEBUG_DISABLE_ADC      0x86
 
 
-#define TWI_NONE                   0xFF
+#define I2C_NONE                   0xFF
 
 #define I2C_ADDRESS_EEPROM_LOCATION (uint8_t*)0x01
 #define I2C_ADDRESS_BASE        0x20
+
+#define MAIN_LOOP_PERIOD_SECONDS   5
+
+// -------------------- LED Management --------------------
 
 inline static void ledSetup(){
     LED_DDR |= _BV(LED_A) | _BV(LED_K);
@@ -87,113 +93,9 @@ inline static void powerOff() {
 	POWER_PORT &= ~_BV(POWER_PIN);
 }
 
-inline static void adcSetup() {
-    // setting ADPS0..2 == 0b110 applies a 64 factor
-    // Given F_CPU is 8MHz, it gives a 125KHz freq
-    // Datasheets advices for 50..200KHz
+// -------------------- light measurement -------------------
 
-    ADCSRA = _BV(ADPS2) | _BV(ADPS1) | _BV(ADIE);
-    ADMUX = 0;
-}
-
-inline static void enableADC() {
-    ADCSRA |= _BV(ADEN);
-}
-
-inline static void disableADC() {
-    ADCSRA &= ~_BV(ADEN);
-}
-
-uint8_t adcInProgress = 0;
-
-inline static void sleepWhileADC() {
-    adcInProgress = 1;
-    while(adcInProgress) {
-        set_sleep_mode(SLEEP_MODE_ADC);
-        sleep_mode();
-    }
-}
-
-ISR(ADC_vect) {
-    adcInProgress = 0;
-    //nothing, just wake up
-}
-
-uint16_t adcReadChannel(uint8_t channel) {
-    // COnverversion on chnnel using AVcc as Vref
-    ADMUX = _BV(REFS0) | channel;
-
-    ADCSRA |= _BV(ADSC);
-    sleepWhileADC();
-    return ADC;
-}
-
-uint8_t capMeasurementInProgress = 0;
-
-// assumes F_CPU = 8MHz
-#if F_CPU != 8000000
-    #error This code assumes F_CPU of 8MHz in order to generate a 1MHz square wave output on excitation pin...
-#endif
-
-// For now just use a makefile define, no I²C command for changing
-
-uint8-t excitation_freq_index = 3; // default 1MHz
-
-uint8_t semi_periods = {
-    40, // 100  kHz
-    16, // 250  kHz
-    8,  // 500  kHz
-    4,  // 1    MHz
-    2,  // 2    MHz
-    1   // 4    MHz
-}
-
-static inline void excitationEnable() {
-    // Disable Power Reduction for Timer0
-    PRR &= ~_BV(PRTIM0);
-
-    // OC0A as output
-    EXCITATION_DDR |= _BV(EXCITATION_PIN);
-
-    OCR0A = semi_periods[excitation_freq_index];
-
-    // Phase correct fast PWM (mode5), toggling, no frequency prescale
-    TCCR0A = _BV(COM0A0) | _BV(WGM00);
-    TCCR0B = _BV(WGM02) | _BV(CS00);
-}
-
-static inline void excitationDisable() {
-    // Stop Timer0
-    TCCR0A = 0;
-    TCCR0B = 0;
-    EXCITATION_PORT &= ~_BV(EXCITATION_PIN);
-    EXCITATION_DDR &= ~_BV(EXCITATION_PIN);
-    // Enable Power Reduction for Timer0
-    PRR |= _BV(PRTIM0);
-}
-
-#if defined(STUB_MEASUREMENT_FUNC)
-uint16_t getCapacitance() {return 0xAA55;}
-#else
-uint16_t getCapacitance() {
-    enableADC();
-    powerOn();
-    excitationEnable();
-    _delay_ms(10); // useful ?
-    capMeasurementInProgress = 1;
-    uint16_t caph = adcReadChannel(CHANNEL_CAPACITANCE_HIGH);
-    uint16_t capl = adcReadChannel(CHANNEL_CAPACITANCE_LOW);
-    capMeasurementInProgress = 0;
-    excitationDisable();
-    powerOff();
-    disableADC();
-    uint16_t result = 1023 - (caph - capl);
-    dbg("getCapacitance() caph=%d, capl=%d, result=%d\n", caph, capl, result);
-    return result;
-}
-#endif
-
-//--------------------- light measurement --------------------
+uint16_t light = 0;
 
 volatile uint16_t lightCounter = 0;
 volatile uint8_t lightCycleOver = 1;
@@ -254,6 +156,132 @@ static inline uint16_t getLight() {
 }
 #endif
 
+
+// -------------------- ADC Management --------------------
+
+inline static void adcSetup() {
+    // setting ADPS0..2 == 0b110 applies a 64 factor
+    // Given F_CPU is 8MHz, it gives a 125KHz freq
+    // Datasheets advices for 50..200KHz
+
+    ADCSRA = _BV(ADPS2) | _BV(ADPS1) | _BV(ADIE);
+    ADMUX = 0;
+}
+
+inline static void enableADC() {
+    ADCSRA |= _BV(ADEN);
+}
+
+inline static void disableADC() {
+    ADCSRA &= ~_BV(ADEN);
+}
+
+uint8_t adcInProgress = 0;
+
+inline static void sleepWhileADC() {
+    adcInProgress = 1;
+    while(adcInProgress) {
+        set_sleep_mode(SLEEP_MODE_ADC);
+        sleep_mode();
+    }
+}
+
+ISR(ADC_vect) {
+    adcInProgress = 0;
+    //nothing, just wake up
+}
+
+uint16_t adcReadChannel(uint8_t channel) {
+    // COnverversion on chnnel using AVcc as Vref
+    ADMUX = _BV(REFS0) | channel;
+
+    ADCSRA |= _BV(ADSC);
+    sleepWhileADC();
+    return ADC;
+}
+
+
+
+// -------------------- Capacitance Measurement --------------------
+
+uint16_t capacitance = 0;
+
+bool capMeasurementInProgress = false;
+
+// assumes F_CPU = 8MHz
+#if F_CPU != 8000000
+    #error This code assumes F_CPU of 8MHz in order to generate a 1MHz square wave output on excitation pin...
+#endif
+
+// For now just use a makefile define, no I²C command for changing
+
+uint8_t excitation_freq_index = 3; // default 1MHz
+
+uint8_t semi_periods[] = {
+    40, // 100  kHz
+    16, // 250  kHz
+    8,  // 500  kHz
+    4,  // 1    MHz
+    2,  // 2    MHz
+    1   // 4    MHz
+};
+
+static inline void excitationEnable() {
+    // Disable Power Reduction for Timer0
+    PRR &= ~_BV(PRTIM0);
+
+    // OC0A as output
+    EXCITATION_DDR |= _BV(EXCITATION_PIN);
+
+    OCR0A = semi_periods[excitation_freq_index];
+
+    // Phase correct fast PWM (mode5), toggling, no frequency prescale
+    TCCR0A = _BV(COM0A0) | _BV(WGM00);
+    TCCR0B = _BV(WGM02) | _BV(CS00);
+}
+
+static inline void excitationDisable() {
+    // Stop Timer0
+    TCCR0A = 0;
+    TCCR0B = 0;
+    EXCITATION_PORT &= ~_BV(EXCITATION_PIN);
+    EXCITATION_DDR &= ~_BV(EXCITATION_PIN);
+    // Enable Power Reduction for Timer0
+    PRR |= _BV(PRTIM0);
+}
+
+#if defined(STUB_MEASUREMENT_FUNC)
+uint16_t getCapacitance() {return 0xAA55;}
+#else
+uint16_t getCapacitance() {
+    enableADC();
+    powerOn();
+    excitationEnable();
+    // first "trash" conversion is to be discarded
+    adcReadChannel(CHANNEL_CAPACITANCE_HIGH);
+    _delay_ms(10); // useful ?
+
+    capMeasurementInProgress = true;
+    uint16_t caph = adcReadChannel(CHANNEL_CAPACITANCE_HIGH);
+    uint16_t capl = adcReadChannel(CHANNEL_CAPACITANCE_LOW);
+    capMeasurementInProgress = false;
+
+    excitationDisable();
+    powerOff();
+    disableADC();
+
+    uint16_t result = 1023 - (caph - capl);
+    dbg("getCapacitance() caph=%d, capl=%d, result=%d\n", caph, capl, result);
+    return result;
+}
+#endif
+
+
+
+// -------------------- WatchDog & Reset --------------------
+
+bool reset_requested = false;
+
 /* NOTE: Watchdog is only used to programtically reset the chip, as for now */
 inline static void wdt_disable() {
     MCUSR = 0;
@@ -271,46 +299,17 @@ inline static void wdt_enable() {
 
 #define reset() {wdt_enable(); while(1) {}}
 
-const uint8_t version = FIRMWARE_VERSION;
-uint16_t capacitance = 0;
-uint16_t light = 0;
 
-const uint8_t *answer_ptr = NULL;
+// -------------------- Power Saving --------------------
 
-uint8_t current_command = TWI_NONE;
-uint8_t answer_byte_counter = 0;
-bool answer_requested = false;
-bool measurement_update = false;
+bool sleep_requested = false;
 bool is_woke = false;
-
 
 static inline void setupPowerSaving() {
     PRR = _BV(PRTIM0) | _BV(PRTIM1) | _BV(PRTIM2) | _BV(PRSPI); //shut down everything we don't use
     // | _BV(PRUSART0);
     ACSR = _BV(ACD); //disable comparators
     // DIDR0 = _BV(ADC0D) | _BV(ADC1D); //disable input buffers for analog pins
-}
-
-void twiReceive(uint8_t data) {
-    if (current_command == TWI_NONE) {
-        current_command = data;
-    }
-}
-
-void twiRequest(i2c_request_t request) {
-    switch(request) {
-        case INITIAL:
-        case CONTINUATION:
-            answer_requested = true;
-            break;
-        case DONE:
-            answer_requested = false;
-            measurement_update = true;
-            answer_ptr = NULL;
-            answer_byte_counter = 0;
-            current_command = TWI_NONE;
-            break;
-    }
 }
 
 void wakeup() {
@@ -323,119 +322,128 @@ void wakeup() {
     is_woke = true;
 }
 
-void update_measurements() {
-        dbg("start measurements...\n");
-        ledOff();
-        i2c_slave_busy();
-        light = getLight();
-        capacitance = getCapacitance();
-        i2c_slave_ready();
-        ledOn();
-        dbg("measurements done (cap=%d ; light=%d).\n", capacitance, light);
+
+// -------------------- I²C commands --------------------
+
+uint8_t i2c_buffer[I2C_BUFFER_SIZE];
+
+uint8_t i2c_wakeup(uint8_t *buffer, uint8_t buffer_len) {
+    dbg("I²C: WAKEUP\n");
+    wakeup();
+    return 0;
 }
 
-void twiMainLoop() {
-    if (!is_woke) {
-        wakeup();
-        // is_woke = true;
-    }
+uint8_t i2c_get_capacitance(uint8_t *buffer, uint8_t buffer_len) {
+    dbg("I²C: GET CAPACITANCE: %d\n", capacitance);
+    buffer[0] = (capacitance & 0xFF00) >> 8;
+    buffer[1] = (capacitance & 0x00FF);
+    return sizeof(uint16_t);
+}
 
-    if (answer_requested && answer_ptr) {
-        if (answer_byte_counter > 0) {
-            i2c_slave_transmitByte(*(answer_ptr+answer_byte_counter-1));
-            answer_byte_counter--;
-        } else {
-            // if master request too many bytes, just send 0x00 to stuff
-            i2c_slave_transmitByte(0x00);
-        }
-    }
+uint8_t i2c_get_light(uint8_t *buffer, uint8_t buffer_len) {
+    dbg("I²C: GET LIGHT : %d\n", light);
+    buffer[0] = (light & 0xFF00) >> 8;
+    buffer[1] = (light & 0x00FF);
+    return sizeof(uint16_t);
+}
 
-    if (measurement_update) {
-        update_measurements();
-    }
+uint8_t i2c_get_version(uint8_t *buffer, uint8_t buffer_len) {
+    dbg("I²C: GET VERSION: 0x%x\n", FIRMWARE_VERSION);
+    buffer[0] = FIRMWARE_VERSION;
+    return sizeof(uint8_t);
+}
 
-    switch (current_command) {
-        case TWI_WAKEUP:
-            dbg("I²C: WAKEUP\n");
-            break;
-        case TWI_GET_CAPACITANCE:
-            dbg("I²C: GET CAPACITANCE\n");
-            answer_ptr = (const uint8_t*)&capacitance;
-            answer_byte_counter = 2;
-            break;
-        case TWI_GET_LIGHT:
-            dbg("I²C: GET LIGHT\n");
-            answer_ptr = (const uint8_t*)&light;
-            answer_byte_counter = 2;
-            break;
-        case TWI_GET_VERSION:
-            dbg("I²C: GET VERSION\n");
-            answer_ptr = &version;
-            answer_byte_counter = 1;
-            break;
-        case TWI_RESET:
-            dbg("I²C: RESET\n");
-            i2c_slave_busy();
-            reset();
-            // Need to reset command now as we won't properly exit loop
-            current_command = TWI_NONE;
-            break;
-        case TWI_SLEEP:
-            dbg("I²C: SLEEP\n");
-            ledOff();
-            is_woke = false;
-            set_sleep_mode(SLEEP_MODE_PWR_DOWN);
-            sleep_mode();
-            break;
+uint8_t i2c_reset(uint8_t *buffer, uint8_t buffer_len) {
+    dbg("I²C: RESET\n");
+    reset_requested = true;
+    return 0;
+}
 
+uint8_t i2c_sleep(uint8_t *buffer, uint8_t buffer_len) {
+    dbg("I²C: SLEEP\n");
+    sleep_requested = true;
+    return 0;
+}
+
+
+// -------------------- I²C DEBUG commands --------------------
 #if DEBUG
-        // ---- DEBUG commands ----
-        case TWI_DEBUG_ENABLE_ADC:
-            dbg("DBG : ENABLE ADC\n");
-            enableADC();
-            break;
-        case TWI_DEBUG_POWER_ON:
-            dbg("DBG : POWER ON\n");
-            powerOn();
-            break;
-        // case TWI_DEBUG_SET_EXCITATION_FREQ:
-        //
-        //     dbg("DBG : SET EXCITATION FREQ\n");
-        //     break;
-        case TWI_DEBUG_START_EXCITATION:
-            dbg("DBG : START EXCITATION\n");
-            excitationEnable();
-            break;
-        case TWI_DEBUG_CAP_MEASUREMENT:
-            dbg("DBG : CAPACITIVE MEASUREMENT\n");
-            i2c_slave_busy();
-            _delay_ms(10); // useful ?
-            capMeasurementInProgress = 1;
-            uint16_t caph = adcReadChannel(CHANNEL_CAPACITANCE_HIGH);
-            uint16_t capl = adcReadChannel(CHANNEL_CAPACITANCE_LOW);
-            capMeasurementInProgress = 0;
-            i2c_slave_ready();
-            dbg("** Read capacitance : %d (capH=%d, capL=%d)\n", 1023 - (caph - capl), caph, capl);
-            break;
-        case TWI_DEBUG_STOP_EXITATION:
-            dbg("DBG : STOP EXITATION\n");
-            excitationDisable();
-            break;
-        case TWI_DEBUG_POWER_OFF:
-            dbg("DBG : POWER OFF\n");
-            powerOff();
-            break;
-        case TWI_DEBUG_DISABLE_ADC:
-            dbg("DBG : DISABLE ADC\n");
-            disableADC();
-            break;
-#endif
-        default:
-            break;
-    }
-    // reset command for new loop
-    current_command = TWI_NONE;
+
+uint8_t i2c_debug_enable_adc(uint8_t *buffer, uint8_t buffer_len) {
+    dbg("DBG : ENABLE ADC\n");
+    enableADC();
+    return 0;
 }
+
+uint8_t i2c_debug_power_on(uint8_t *buffer, uint8_t buffer_len) {
+    dbg("DBG : POWER ON\n");
+    powerOn();
+    return 0;
+}
+
+// case I2C_DEBUG_SET_EXCITATION_FREQ:
+//
+//     dbg("DBG : SET EXCITATION FREQ\n");
+//     break;
+
+uint8_t i2c_debug_start_exitation(uint8_t *buffer, uint8_t buffer_len) {
+    dbg("DBG : START EXCITATION\n");
+    excitationEnable();
+    return 0;
+}
+
+uint8_t i2c_debug_cap_measurement(uint8_t *buffer, uint8_t buffer_len) {
+    dbg("DBG : CAPACITIVE MEASUREMENT\n");
+    _delay_ms(10); // useful ?
+    capMeasurementInProgress = 1;
+    uint16_t caph = adcReadChannel(CHANNEL_CAPACITANCE_HIGH);
+    uint16_t capl = adcReadChannel(CHANNEL_CAPACITANCE_LOW);
+    capMeasurementInProgress = 0;
+    dbg("** Read capacitance : %d (capH=%d, capL=%d)\n", 1023 - (caph - capl), caph, capl);
+    return 0;
+}
+
+uint8_t i2c_debug_stop_exitation(uint8_t *buffer, uint8_t buffer_len) {
+    dbg("DBG : STOP EXITATION\n");
+    excitationDisable();
+    return 0;
+}
+
+uint8_t i2c_debug_power_off(uint8_t *buffer, uint8_t buffer_len) {
+    dbg("DBG : POWER OFF\n");
+    powerOff();
+    return 0;
+}
+
+uint8_t i2c_debug_disable_adc(uint8_t *buffer, uint8_t buffer_len) {
+    dbg("DBG : DISABLE ADC\n");
+    disableADC();
+    return 0;
+}
+
+#endif
+
+
+i2c_slaveSM_command_t commands[] = {
+    {I2C_WAKEUP,                 0, i2c_wakeup},
+    {I2C_GET_CAPACITANCE,        0, i2c_get_capacitance},
+    {I2C_GET_LIGHT,              0, i2c_get_light},
+    {I2C_RESET,                  0, i2c_reset},
+    {I2C_GET_VERSION,            0, i2c_get_version},
+    {I2C_SLEEP,                  0, i2c_sleep},
+#if DEBUG
+    {I2C_DEBUG_ENABLE_ADC,       0, i2c_debug_enable_adc},
+    {I2C_DEBUG_POWER_ON,         0, i2c_debug_power_on},
+    {I2C_DEBUG_START_EXCITATION, 0, i2c_debug_start_exitation},
+    {I2C_DEBUG_CAP_MEASUREMENT,  0, i2c_debug_cap_measurement},
+    {I2C_DEBUG_STOP_EXITATION,   0, i2c_debug_stop_exitation},
+    {I2C_DEBUG_POWER_OFF,        0, i2c_debug_power_off},
+    {I2C_DEBUG_DISABLE_ADC,      0, i2c_debug_disable_adc},
+#endif
+};
+
+
+// -------------------- Main --------------------
 
 int main (void) {
     wdt_disable();
@@ -467,11 +475,37 @@ int main (void) {
     wakeup();
 
     dbg("Setup i²c...\n");
-    i2c_slave_init(address);
-    i2c_slave_setCallbacks(NULL, twiReceive, twiRequest);
+    // i2c_slave_init(address);
+    // i2c_slave_setCallbacks(NULL, twiReceive, twiRequest);
+    i2c_slaveSM_init(address,
+                     commands, sizeof(commands)/sizeof(i2c_slaveSM_command_t),
+                     i2c_buffer, I2C_BUFFER_SIZE);
 
-    dbg("Enter loop.");
+    dbg("Enter loop.\n");
     while(1) {
-        twiMainLoop();
+        dbg("Loop...\n");
+
+        if (is_woke) {
+            dbg("start measurements...\n");
+            ledOff();
+            light = getLight();
+            capacitance = getCapacitance();
+            ledOn();
+            dbg("measurements done (cap=%d ; light=%d).\n", capacitance, light);
+        }
+
+        if (sleep_requested) {
+            ledOff();
+            is_woke = false;
+            set_sleep_mode(SLEEP_MODE_PWR_DOWN);
+            sleep_mode();
+        }
+
+        if (reset_requested) {
+            reset_requested = false;
+            reset();
+        }
+
+        _delay_ms(1000 * MAIN_LOOP_PERIOD_SECONDS);
     }
 }
