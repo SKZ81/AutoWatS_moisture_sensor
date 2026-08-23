@@ -11,7 +11,7 @@
 #include "avr_uart.h"
 
 #if !defined(DEBUG)
-#define DEBUG 1 // If unspecified, activate DEBUG by  default
+    #define DEBUG 1 // If unspecified, activate DEBUG by  default
 #endif
 
 #if DEBUG
@@ -51,11 +51,12 @@
 // #define I2C_SET_ADDRESS         0x06
 #define I2C_DEBUG_ENABLE_ADC       0x80
 #define I2C_DEBUG_POWER_ON         0x81
-#define I2C_DEBUG_START_EXCITATION 0x82
-#define I2C_DEBUG_CAP_MEASUREMENT  0x83
-#define I2C_DEBUG_STOP_EXITATION   0x84
-#define I2C_DEBUG_POWER_OFF        0x85
-#define I2C_DEBUG_DISABLE_ADC      0x86
+#define I2C_DEBUG_SET_EXCIT_FREQ   0x82
+#define I2C_DEBUG_START_EXCITATION 0x83
+#define I2C_DEBUG_CAP_MEASUREMENT  0x84
+#define I2C_DEBUG_STOP_EXITATION   0x85
+#define I2C_DEBUG_POWER_OFF        0x86
+#define I2C_DEBUG_DISABLE_ADC      0x87
 
 
 #define I2C_NONE                   0xFF
@@ -207,6 +208,7 @@ uint16_t adcReadChannel(uint8_t channel) {
 uint16_t capacitance = 0;
 
 bool capMeasurementInProgress = false;
+bool excitation_enabled = false;
 
 // assumes F_CPU = 8MHz
 #if F_CPU != 8000000
@@ -238,9 +240,12 @@ static inline void excitationEnable() {
     // Phase correct fast PWM (mode5), toggling, no frequency prescale
     TCCR0A = _BV(COM0A0) | _BV(WGM00);
     TCCR0B = _BV(WGM02) | _BV(CS00);
+
+    excitation_enabled = true;
 }
 
 static inline void excitationDisable() {
+    excitation_enabled = false;
     // Stop Timer0
     TCCR0A = 0;
     TCCR0B = 0;
@@ -381,10 +386,31 @@ uint8_t i2c_debug_power_on(uint8_t *buffer, uint8_t buffer_len) {
     return 0;
 }
 
-// case I2C_DEBUG_SET_EXCITATION_FREQ:
-//
-//     dbg("DBG : SET EXCITATION FREQ\n");
-//     break;
+#if DEBUG
+    char* frequencies_txt[] = {
+        "100  kHz",
+        "250  kHz",
+        "500  kHz",
+        "1    MHz",
+        "2    MHz",
+        "4    MHz"
+    };
+#endif
+
+uint8_t i2c_debug_set_exitation_freq(uint8_t *buffer, uint8_t buffer_len) {
+    if (buffer[0] < sizeof(semi_periods)) {
+        dbg("DBG : SET EXCITATION FREQ (index: %d, freq: %s)\n",
+            buffer[0], frequencies_txt[buffer[0]]);
+        bool is_exc_running = excitation_enabled;
+        if (is_exc_running) excitationDisable();
+        excitation_freq_index = buffer[0];
+        // restart if need
+        if (is_exc_running) excitationEnable();
+    } else {
+        dbg("DBG: SET EXCITATION FREQ: index %d is INVALID !\n");
+    }
+    return 0;
+}
 
 uint8_t i2c_debug_start_exitation(uint8_t *buffer, uint8_t buffer_len) {
     dbg("DBG : START EXCITATION\n");
@@ -434,6 +460,7 @@ i2c_slaveSM_command_t commands[] = {
 #if DEBUG
     {I2C_DEBUG_ENABLE_ADC,       0, i2c_debug_enable_adc},
     {I2C_DEBUG_POWER_ON,         0, i2c_debug_power_on},
+    {I2C_DEBUG_SET_EXCIT_FREQ,   1, i2c_debug_set_exitation_freq},
     {I2C_DEBUG_START_EXCITATION, 0, i2c_debug_start_exitation},
     {I2C_DEBUG_CAP_MEASUREMENT,  0, i2c_debug_cap_measurement},
     {I2C_DEBUG_STOP_EXITATION,   0, i2c_debug_stop_exitation},
@@ -460,6 +487,7 @@ int main (void) {
     }
 
     dbg("I²C moisture sensor, address = 0x%x\n", address);
+    dbg("Excitation frequency: %s\n", excitation_freq_index);
 
 
     dbg("Set power saving params...\n");
