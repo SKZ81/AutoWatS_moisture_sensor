@@ -63,6 +63,9 @@
 
 #define I2C_ADDRESS_EEPROM_LOCATION (uint8_t*)0x01
 #define I2C_ADDRESS_BASE        0x20
+#ifndef I2C_FREQUENCY
+    #define I2C_FREQUENCY       100000 // bauds
+#endif
 
 #define MAIN_LOOP_PERIOD_SECONDS   5
 
@@ -505,7 +508,7 @@ int main (void) {
     dbg("Setup i²c...\n");
     // i2c_slave_init(address);
     // i2c_slave_setCallbacks(NULL, twiReceive, twiRequest);
-    i2c_slaveSM_init(address,
+    i2c_slaveSM_init(address, I2C_FREQUENCY,
                      commands, sizeof(commands)/sizeof(i2c_slaveSM_command_t),
                      i2c_buffer, I2C_BUFFER_SIZE);
 
