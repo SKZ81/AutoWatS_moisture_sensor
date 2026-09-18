@@ -178,27 +178,21 @@ inline static void disableADC() {
     ADCSRA &= ~_BV(ADEN);
 }
 
-uint8_t adcInProgress = 0;
-
 inline static void sleepWhileADC() {
-    adcInProgress = 1;
-    while(adcInProgress) {
-        set_sleep_mode(SLEEP_MODE_ADC);
-        sleep_mode();
-    }
-}
-
-ISR(ADC_vect) {
-    adcInProgress = 0;
-    //nothing, just wake up
+    while(!(ADCSRA & ADIF)) {}
 }
 
 uint16_t adcReadChannel(uint8_t channel) {
-    // COnverversion on chnnel using AVcc as Vref
+    // Conversion on `channel` using AVcc as Vref
     ADMUX = _BV(REFS0) | channel;
 
     ADCSRA |= _BV(ADSC);
     sleepWhileADC();
+    // First conversion after mux switch is discarded
+
+    ADCSRA |= _BV(ADSC);
+    sleepWhileADC();
+
     return ADC;
 }
 
@@ -211,22 +205,18 @@ uint16_t capacitance = 0;
 bool capMeasurementInProgress = false;
 bool excitation_enabled = false;
 
-// assumes F_CPU = 8MHz
-#if F_CPU != 8000000
-    #error This code assumes F_CPU of 8MHz in order to generate a 1MHz square wave output on excitation pin...
-#endif
+uint8_t excitation_freq_index // = 3; // default 1MHz
+                              = 5;
 
-// For now just use a makefile define, no I²C command for changing
-
-uint8_t excitation_freq_index = 3; // default 1MHz
-
-uint8_t semi_periods[] = {
-    40, // 100  kHz
-    16, // 250  kHz
-    8,  // 500  kHz
-    4,  // 1    MHz
-    2,  // 2    MHz
-    1   // 4    MHz
+// TODO : recheck frequencies
+uint8_t ocr0a_values[] = {
+    39, // 100 kHz  measured: 51.50 kHz (50k)
+    15, // 250 kHz  measured: 133.8 kHz (133.3k)
+     7, // 500 kHz  measured: 297.4 kHz (285.7k)
+     4, // 800 kHz  measured: 502   kHz (500k)
+     3, // 1   MHz  measured: 670   kHz (666k)
+     1, // 2   MHz  measured: 2     MHz (2M)
+     0  // 4   MHz  measured: 4     MHz (4M)
 };
 
 static inline void excitationEnable() {
@@ -235,10 +225,13 @@ static inline void excitationEnable() {
 
     // OC0A as output
     EXCITATION_DDR |= _BV(EXCITATION_PIN);
+    EXCITATION_PORT &= ~_BV(EXCITATION_PIN);
+    // Reset counter
+    TCNT0 = 0;
+    // Setup TOP value for WGM
+    OCR0A = ocr0a_values[excitation_freq_index];
 
-    OCR0A = semi_periods[excitation_freq_index];
-
-    // Phase correct fast PWM (mode5), toggling, no frequency prescale
+    // Phase correct PWM (mode5), toggling, no frequency prescale
     TCCR0A = _BV(COM0A0) | _BV(WGM00);
     TCCR0B = _BV(WGM02) | _BV(CS00);
 
@@ -247,11 +240,16 @@ static inline void excitationEnable() {
 
 static inline void excitationDisable() {
     excitation_enabled = false;
+
     // Stop Timer0
     TCCR0A = 0;
     TCCR0B = 0;
+    // reset excitation pin state
     EXCITATION_PORT &= ~_BV(EXCITATION_PIN);
     EXCITATION_DDR &= ~_BV(EXCITATION_PIN);
+    // Reset counter
+    TCNT0 = 0;
+
     // Enable Power Reduction for Timer0
     PRR |= _BV(PRTIM0);
 }
@@ -392,6 +390,7 @@ uint8_t i2c_debug_power_on(uint8_t *buffer, uint8_t buffer_len) {
         "100  kHz",
         "250  kHz",
         "500  kHz",
+        "800  kHz",
         "1    MHz",
         "2    MHz",
         "4    MHz"
@@ -399,9 +398,11 @@ uint8_t i2c_debug_power_on(uint8_t *buffer, uint8_t buffer_len) {
 #endif
 
 uint8_t i2c_debug_set_exitation_freq(uint8_t *buffer, uint8_t buffer_len) {
-    if (buffer[0] < sizeof(semi_periods)) {
-        dbg("DBG : SET EXCITATION FREQ (index: %d, freq: %s)\n",
-            buffer[0], frequencies_txt[buffer[0]]);
+    if (buffer[0] < sizeof(ocr0a_values)) {
+        dbg("DBG : SET EXCITATION FREQ (index: %d, OCR0A:%d, freq: %s)\n",
+            buffer[0],
+            ocr0a_values[buffer[0]],
+            frequencies_txt[buffer[0]]);
         bool is_exc_running = excitation_enabled;
         if (is_exc_running) excitationDisable();
         excitation_freq_index = buffer[0];
@@ -488,7 +489,7 @@ int main (void) {
     }
 
     dbg("I²C moisture sensor, address = 0x%x\n", address);
-    dbg("Excitation frequency: %s\n", excitation_freq_index);
+    dbg("Excitation frequency: %s\n", frequencies_txt[excitation_freq_index]);
 
 
     dbg("Set power saving params...\n");
