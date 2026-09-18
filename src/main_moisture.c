@@ -35,8 +35,9 @@
 #define EXCITATION_DDR DDRD
 #define EXCITATION_PORT PORTD
 
-#define CHANNEL_CAPACITANCE_HIGH   0
-#define CHANNEL_CAPACITANCE_LOW    1
+// NB : CAP_H and CAP_L tracks are inverted on the schematics / PCB
+#define CHANNEL_CAPACITANCE_HIGH   1
+#define CHANNEL_CAPACITANCE_LOW    0
 #define CHANNEL_CHIP_TEMP 0b00001000
 
 #define I2C_BUFFER_SIZE            4
@@ -258,24 +259,24 @@ static inline void excitationDisable() {
 uint16_t getCapacitance() {return 0xAA55;}
 #else
 uint16_t getCapacitance() {
+    uint16_t caph, capl, result;
+
+    capMeasurementInProgress = true;
     enableADC();
     powerOn();
     excitationEnable();
-    // first "trash" conversion is to be discarded
-    adcReadChannel(CHANNEL_CAPACITANCE_HIGH);
-    _delay_ms(10); // useful ?
+    _delay_ms(5); // useful for CAP_H/L stabilisation
 
-    capMeasurementInProgress = true;
-    uint16_t caph = adcReadChannel(CHANNEL_CAPACITANCE_HIGH);
-    uint16_t capl = adcReadChannel(CHANNEL_CAPACITANCE_LOW);
-    capMeasurementInProgress = false;
+    caph = adcReadChannel(CHANNEL_CAPACITANCE_HIGH);
+    capl = adcReadChannel(CHANNEL_CAPACITANCE_LOW);
 
     excitationDisable();
     powerOff();
     disableADC();
+    capMeasurementInProgress = false;
 
-    uint16_t result = 1023 - (caph - capl);
-    dbg("getCapacitance() caph=%d, capl=%d, result=%d\n", caph, capl, result);
+    result = 1023 - (caph - capl);
+    dbg("getCapacitance() caph=%u, capl=%u, result=%u\n", caph, capl, result);
     return result;
 }
 #endif
@@ -310,8 +311,12 @@ bool sleep_requested = false;
 bool is_woke = false;
 
 static inline void setupPowerSaving() {
-    PRR = _BV(PRTIM0) | _BV(PRTIM1) | _BV(PRTIM2) | _BV(PRSPI); //shut down everything we don't use
-    // | _BV(PRUSART0);
+    //shut down everything we don't use
+    PRR = _BV(PRTIM0) | _BV(PRTIM1) | _BV(PRTIM2) | _BV(PRSPI)
+#if ! DEBUG
+        | _BV(PRUSART0)
+#endif
+        ;
     ACSR = _BV(ACD); //disable comparators
     // DIDR0 = _BV(ADC0D) | _BV(ADC1D); //disable input buffers for analog pins
 }
@@ -320,8 +325,6 @@ void wakeup() {
     ledOn();
     _delay_ms(100);
     light = getLight();
-    capacitance = getCapacitance();
-    //we do it two times because the first reading after reset might be off...
     capacitance = getCapacitance();
     is_woke = true;
 }
@@ -422,12 +425,18 @@ uint8_t i2c_debug_start_exitation(uint8_t *buffer, uint8_t buffer_len) {
 
 uint8_t i2c_debug_cap_measurement(uint8_t *buffer, uint8_t buffer_len) {
     dbg("DBG : CAPACITIVE MEASUREMENT\n");
-    _delay_ms(10); // useful ?
-    capMeasurementInProgress = 1;
-    uint16_t caph = adcReadChannel(CHANNEL_CAPACITANCE_HIGH);
-    uint16_t capl = adcReadChannel(CHANNEL_CAPACITANCE_LOW);
-    capMeasurementInProgress = 0;
-    dbg("** Read capacitance : %d (capH=%d, capL=%d)\n", 1023 - (caph - capl), caph, capl);
+    enableADC();
+    TWCR |= (1<<TWINT);
+    sei();
+    getCapacitance();
+    cli();
+    disableADC();
+    // _delay_ms(10); // useful ?
+    // capMeasurementInProgress = 1;
+    // uint16_t caph = adcReadChannel(CHANNEL_CAPACITANCE_HIGH);
+    // uint16_t capl = adcReadChannel(CHANNEL_CAPACITANCE_LOW);
+    // capMeasurementInProgress = 0;
+    // dbg("** Read capacitance : %d (capH=%d, capL=%d)\n", 1023 - (caph - capl), caph, capl);
     return 0;
 }
 
@@ -505,8 +514,6 @@ int main (void) {
     wakeup();
 
     dbg("Setup i²c...\n");
-    // i2c_slave_init(address);
-    // i2c_slave_setCallbacks(NULL, twiReceive, twiRequest);
     i2c_slaveSM_init(address, I2C_FREQUENCY,
                      commands, sizeof(commands)/sizeof(i2c_slaveSM_command_t),
                      i2c_buffer, I2C_BUFFER_SIZE);
@@ -521,7 +528,7 @@ int main (void) {
             light = getLight();
             capacitance = getCapacitance();
             ledOn();
-            dbg("measurements done (cap=%d ; light=%d).\n", capacitance, light);
+            dbg("measurements done (cap=%u ; light=%u).\n", capacitance, light);
         }
 
         if (sleep_requested) {
