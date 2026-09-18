@@ -5,10 +5,11 @@
 # ------------------------------------------------------------------------------
 
 DEVICE     = atmega88pa
-F_CPU      = 8000000	# in Hz
+F_CPU      = 16000000	# in Hz
 
 # see below for fuse values for particular devices
-FUSE_L     = 0xE2 #0xAE(orig) / 0xEE for crystal ??
+# FUSE_L     = 0xE2 #0xAE(orig)
+FUSE_L     = 0xFF # Crystal enabled
 FUSE_H     = 0xDD #0xDF(orig)
 FUSE_E     = 0xF9 #0xF5(orig)
 

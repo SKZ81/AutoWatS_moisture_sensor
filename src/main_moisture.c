@@ -1,4 +1,3 @@
-#include <inttypes.h>
 #include <avr/io.h>
 #include <stdint.h>
 #include <util/delay.h>
@@ -164,11 +163,10 @@ static inline uint16_t getLight() {
 // -------------------- ADC Management --------------------
 
 inline static void adcSetup() {
-    // setting ADPS0..2 == 0b110 applies a 64 factor
-    // Given F_CPU is 8MHz, it gives a 125KHz freq
+    // setting ADPS0..2 == 0b111 applies a 128 factor
+    // Given F_CPU is 16MHz, it gives a 125KHz freq
     // Datasheets advices for 50..200KHz
-
-    ADCSRA = _BV(ADPS2) | _BV(ADPS1) | _BV(ADIE);
+    ADCSRA = _BV(ADPS2) | _BV(ADPS1) | _BV(ADPS0) | _BV(ADIE);
     ADMUX = 0;
 }
 
