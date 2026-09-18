@@ -144,7 +144,7 @@ static inline uint16_t getLight() {
     TCNT1 = 0;                              // reset counter
     TCCR1A = 0;                             // normal operation (OC1A/B disconnected)
 
-    PCMSK1 |= _BV(LED_K_PCINT);                 // enable pin change interrupt on LED_K
+    PCMSK1 |= _BV(LED_K_PCINT);             // enable pin change interrupt on LED_K
     PCICR |= _BV(PCIE1);
 
     lightCycleOver = 0;
@@ -155,6 +155,8 @@ static inline uint16_t getLight() {
         set_sleep_mode(SLEEP_MODE_IDLE);
         sleep_mode();
     }
+
+    LED_DDR |= _BV(LED_K);                  // restore cathode as output
 
     return lightCounter;
 }
