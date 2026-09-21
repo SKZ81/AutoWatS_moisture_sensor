@@ -5,6 +5,7 @@
 #include <avr/eeprom.h>
 #include <avr/sleep.h>
 #include <avr/pgmspace.h>
+#include <avr/wdt.h>
 
 #include "I2CSlave_state_machine.h"
 #include "avr_uart.h"
@@ -169,7 +170,8 @@ inline static void adcSetup() {
     // setting ADPS0..2 == 0b111 applies a 128 factor
     // Given F_CPU is 16MHz, it gives a 125KHz freq
     // Datasheets advices for 50..200KHz
-    ADCSRA = _BV(ADPS2) | _BV(ADPS1) | _BV(ADPS0) | _BV(ADIE);
+    // ADCSRA = _BV(ADPS2) | _BV(ADPS1);
+    ADCSRA = _BV(ADPS2) | _BV(ADPS1) | _BV(ADPS0);
     ADMUX = 0;
 }
 
@@ -181,8 +183,8 @@ inline static void disableADC() {
     ADCSRA &= ~_BV(ADEN);
 }
 
-inline static void sleepWhileADC() {
-    while(!(ADCSRA & ADIF)) {}
+inline static void waitForADC() {
+    while(ADCSRA & _BV(ADSC)) {}
 }
 
 uint16_t adcReadChannel(uint8_t channel) {
@@ -190,11 +192,11 @@ uint16_t adcReadChannel(uint8_t channel) {
     ADMUX = _BV(REFS0) | channel;
 
     ADCSRA |= _BV(ADSC);
-    sleepWhileADC();
+    waitForADC();
     // First conversion after mux switch is discarded
 
     ADCSRA |= _BV(ADSC);
-    sleepWhileADC();
+    waitForADC();
 
     return ADC;
 }
@@ -289,13 +291,21 @@ uint16_t getCapacitance() {
 
 bool reset_requested = false;
 
-/* NOTE: Watchdog is only used to programtically reset the chip, as for now */
-inline static void wdt_disable() {
+/* NOTE: Watchdog is only used to programtically reset the chip, as for now.
+BUT, it NEEDS to be deactivated explicitly at reboot, because it stays enabled over a rebbot, unlike any other other register */
+inline static void watchdogDisable() {
+    cli();
+
     MCUSR = 0;
-    WDTCSR &= ~_BV(WDE);
+
+    wdt_reset();
+    WDTCSR |= _BV(WDCE) | _BV(WDE);
+    WDTCSR = 0;
+
+    sei();
 }
 
-inline static void wdt_enable() {
+inline static void watchdogEnable() {
     WDTCSR = _BV(WDE);
 }
 
@@ -304,7 +314,7 @@ inline static void wdt_enable() {
 //     return (adr >= I2C_ADDRESS_BASE) && (adr < I2C_ADDRESS_BASE + 8);
 // }
 
-#define reset() {wdt_enable(); while(1) {}}
+#define reset() {watchdogEnable(); while(1) {}}
 
 
 // -------------------- Power Saving --------------------
@@ -486,7 +496,8 @@ i2c_slaveSM_command_t commands[] = {
 // -------------------- Main --------------------
 
 int main (void) {
-    wdt_disable();
+    uint8_t reboot_cause = MCUSR;
+    watchdogDisable();
 
     avr_uart_init();
     stdout = &avr_uart_output;
@@ -499,7 +510,7 @@ int main (void) {
         address = I2C_ADDRESS_BASE;
     }
 
-    dbg("I²C moisture sensor, address = 0x%x\n", address);
+    dbg("I²C moisture sensor, address = 0x%02x\n (boot cause=0x%02x)", address, reboot_cause);
     dbg("Excitation frequency: %s\n", frequencies_txt[excitation_freq_index]);
 
 
@@ -524,6 +535,16 @@ int main (void) {
     while(1) {
         dbg("Loop...\n");
 
+        if (sleep_requested) {
+            ledOff();
+            is_woke = false;
+            sleep_requested = false;
+#if ! DEBUG
+            set_sleep_mode(SLEEP_MODE_PWR_DOWN);
+            sleep_mode();
+#endif
+        }
+
         if (is_woke) {
             dbg("start measurements...\n");
             ledOff();
@@ -533,12 +554,6 @@ int main (void) {
             dbg("measurements done (cap=%u ; light=%u).\n", capacitance, light);
         }
 
-        if (sleep_requested) {
-            ledOff();
-            is_woke = false;
-            set_sleep_mode(SLEEP_MODE_PWR_DOWN);
-            sleep_mode();
-        }
 
         if (reset_requested) {
             reset_requested = false;
