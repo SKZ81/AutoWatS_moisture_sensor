@@ -552,8 +552,10 @@ int main (void) {
         if (is_woke) {
             dbg("start measurements...\n");
             ledOff();
+            i2c_slave_busy();
             light = getLight();
             capacitance = getCapacitance();
+            i2c_slave_ready();
             ledOn();
             dbg("measurements done (cap=%u ; light=%u).\n", capacitance, light);
         }
