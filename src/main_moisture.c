@@ -43,13 +43,12 @@
 
 #define I2C_BUFFER_SIZE            4
 
-#define I2C_WAKEUP                 0x00
-#define I2C_GET_CAPACITANCE        0x01
-#define I2C_GET_LIGHT              0x02
-#define I2C_RESET                  0x03
-#define I2C_GET_VERSION            0x04
-#define I2C_SLEEP                  0x05
-// #define I2C_SET_ADDRESS         0x06
+#define I2C_GET_CAPACITANCE        0x00
+#define I2C_GET_LIGHT              0x04
+#define I2C_RESET                  0x06
+#define I2C_GET_VERSION            0x07
+#define I2C_SLEEP                  0x08
+#define I2C_WAKEUP                 0x10
 
 #if DEBUG
 #define I2C_DEBUG_ENABLE_ADC       0x80
