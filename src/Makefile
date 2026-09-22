@@ -1,6 +1,13 @@
 # License: GNU GPL v2 (see License.txt), GNU GPL v3 or proprietary (CommercialLicense.txt)
 
 # ------------------------------------------------------------------------------
+# Firmware version (v0.1)
+# ------------------------------------------------------------------------------
+
+FIRMWARE_VERSION_MAJOR = 0x00
+FIRMWARE_VERSION_MINOR = 0x01
+
+# ------------------------------------------------------------------------------
 # Configuration
 # ------------------------------------------------------------------------------
 
@@ -172,7 +179,7 @@ flash: $(HEX)
 
 eeprom:
 
-	printf '%b' '\xFF\xFF\x'$$(printf '%02X' $$(( $(I2C_ADDRESS) )))'\x'$$(printf '%02X' $$(( $(EXCITATION_FREQ) ))) | \
+	printf '%b' '\x$$(printf '%02X' $$(( $(FIRMWARE_VERSION_MAJOR) )))\x$$(printf '%02X' $$(( $(FIRMWARE_VERSION_MINOR) )))\x'$$(printf '%02X' $$(( $(I2C_ADDRESS) )))'\x'$$(printf '%02X' $$(( $(EXCITATION_FREQ) ))) | \
 	$(AVRDUDE) -U eeprom:w:-:r
 
 # ------------------------------------------------------------------------------
