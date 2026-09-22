@@ -63,8 +63,8 @@
 
 #define I2C_NONE                   0xFF
 
-#define I2C_ADDRESS_EEPROM_LOCATION (uint8_t*)0x01
-#define EXCITATION_FREQ_INDEX_EEPROM_LOCATION (uint8_t*)0x02
+#define EEPROM_LOCATION_I2C_ADDRESS       (uint8_t*)0x02
+#define EEPROM_LOCATION_EXC_FREQ_IDX      (uint8_t*)0x03
 
 #define I2C_ADDRESS_BASE        0x20
 #ifndef I2C_FREQUENCY
@@ -213,6 +213,7 @@ uint16_t capacitance = 0;
 bool capMeasurementInProgress = false;
 bool excitation_enabled = false;
 
+#define DEFAULT_EXCITATION_FREQ_INDEX 3 // 1MHz
 uint8_t excitation_freq_index = 0xFF;
 
 // TODO : recheck frequencies
@@ -503,14 +504,14 @@ int main (void) {
     stdout = &avr_uart_output;
     stdin  = &avr_uart_input_echo;
 
-    uint8_t address = eeprom_read_byte(I2C_ADDRESS_EEPROM_LOCATION);
+    uint8_t address = eeprom_read_byte(EEPROM_LOCATION_I2C_ADDRESS);
     // if(!twiIsValidAddress(address)) {
     if(address == 0xFF) {
         // EEPROM was not programmed, use default address
         address = I2C_ADDRESS_BASE;
     }
 
-    excitation_freq_index = eeprom_read_byte(EXCITATION_FREQ_INDEX_EEPROM_LOCATION);
+    excitation_freq_index = eeprom_read_byte(EEPROM_LOCATION_EXC_FREQ_IDX);
     if(excitation_freq_index == 0xFF) {
         // EEPROM was not programmed, use default excitation_freq_index
         excitation_freq_index = DEFAULT_EXCITATION_FREQ_INDEX;
