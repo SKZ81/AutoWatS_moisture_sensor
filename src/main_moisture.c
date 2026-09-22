@@ -63,6 +63,8 @@
 #define I2C_NONE                   0xFF
 
 #define I2C_ADDRESS_EEPROM_LOCATION (uint8_t*)0x01
+#define EXCITATION_FREQ_INDEX_EEPROM_LOCATION (uint8_t*)0x02
+
 #define I2C_ADDRESS_BASE        0x20
 #ifndef I2C_FREQUENCY
     #define I2C_FREQUENCY       100000 // bauds
@@ -210,8 +212,7 @@ uint16_t capacitance = 0;
 bool capMeasurementInProgress = false;
 bool excitation_enabled = false;
 
-uint8_t excitation_freq_index // = 3; // default 1MHz
-                              = 5;
+uint8_t excitation_freq_index = 0xFF;
 
 // TODO : recheck frequencies
 uint8_t ocr0a_values[] = {
@@ -510,13 +511,18 @@ int main (void) {
         address = I2C_ADDRESS_BASE;
     }
 
-    printf_P(PSTR(("I²C moisture sensor, address = 0x%02x\n (excit. freq idx=%u\n", address, excitation_freq_index);
-    dbg("  - boot cause: %s%s%s%s\n",
-        reboot_cause & WDRF  ? PSTR("WatchDog") : "",
-        reboot_cause & BORF  ? PSTR("BrownOut") : "",
-        reboot_cause & EXTRF ? PSTR("External") : "",
-        reboot_cause & PORF  ? PSTR("PowerOn")  : "");
+    excitation_freq_index = eeprom_read_byte(EXCITATION_FREQ_INDEX_EEPROM_LOCATION);
+    if(excitation_freq_index == 0xFF) {
+        // EEPROM was not programmed, use default excitation_freq_index
+        excitation_freq_index = DEFAULT_EXCITATION_FREQ_INDEX;
+    }
 
+    printf_P(PSTR(("I²C moisture sensor, address = 0x%02x\n (excit. freq idx=%u\n", excitation_freq_index);
+    dbg("boot cause: %s%s%s%s\n"),
+        reboot_cause & WDRF  ? "WatchDog",
+        reboot_cause & BORF  ? "BrownOut",
+        reboot_cause & EXTRF ? "External",
+        reboot_cause & PORF  ? "PowerOn");
     dbg("Excitation frequency: %s\n\n", frequencies_txt[excitation_freq_index]);
 
     dbg("Set power saving params...\n");

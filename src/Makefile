@@ -22,6 +22,7 @@ AVRDUDE = avrdude -c $(PROGRAMMER) -P $(PORT) -p $(DEVICE) -b $(BAUDRATE)
 
 # I2C address stored in EEPROM
 I2C_ADDRESS ?= 0x20
+EXCITATION_FREQ ?=4
 
 DEBUG ?= 0
 
@@ -170,9 +171,9 @@ flash: $(HEX)
 #   I2C_ADDRESS=0x20
 
 eeprom:
-	printf '%b' '\xFF\x'$$(printf '%02X' $$(( $(I2C_ADDRESS) ))) | \
-		$(AVRDUDE) -U eeprom:w:-:r
 
+	printf '%b' '\xFF\x'$$(printf '%02X' $$(( $(I2C_ADDRESS) )))'\x'$$(printf '%02X' $$(( $(EXCITATION_FREQ) ))) | \
+	$(AVRDUDE) -U eeprom:w:-:r
 
 # ------------------------------------------------------------------------------
 # Cleaning
