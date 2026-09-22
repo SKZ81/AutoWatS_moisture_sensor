@@ -50,6 +50,7 @@
 #define I2C_GET_VERSION            0x07
 #define I2C_SLEEP                  0x08
 #define I2C_WAKEUP                 0x10
+#define I2C_SET_EXCIT_FREQ         0x11
 
 #if DEBUG
 #define I2C_DEBUG_ENABLE_ADC       0x80
@@ -262,6 +263,15 @@ static inline void excitationDisable() {
     PRR |= _BV(PRTIM0);
 }
 
+static inline void set_excitation_frequency(uint8_t freq_index) {
+    // NOTE: Do not restart immediately if a measurement is in progress (i.e. restart only when excitation is started by debug command).
+    bool restart = excitation_enabled && !capMeasurementInProgress;
+    if (restart) excitationDisable();
+    excitation_freq_index = freq_index;
+    // restart if need
+    if (restart) excitationEnable();
+}
+
 #if defined(STUB_MEASUREMENT_FUNC)
 uint16_t getCapacitance() {return 0xAA55;}
 #else
@@ -392,6 +402,14 @@ uint8_t i2c_set_address(uint8_t *buffer, uint8_t buffer_len) {
     return 0;
 }
 
+uint8_t i2c_set_excit_freq_idx(uint8_t *buffer, uint8_t buffer_len) {
+    uint8_t freq_index = buffer[0];
+    dbg("I²C: SET EXCIT. FREQ. IDX %u\n", freq_index);
+    eeprom_update_byte(EEPROM_LOCATION_EXC_FREQ_IDX, freq_index);
+    set_excitation_frequency(freq_index);
+    return 0;
+}
+
 uint8_t i2c_sleep(uint8_t *buffer, uint8_t buffer_len) {
     dbg("I²C: SLEEP\n");
     sleep_requested = true;
@@ -430,11 +448,8 @@ uint8_t i2c_debug_set_exitation_freq(uint8_t *buffer, uint8_t buffer_len) {
             buffer[0],
             ocr0a_values[buffer[0]],
             frequencies_txt[buffer[0]]);
-        bool is_exc_running = excitation_enabled;
-        if (is_exc_running) excitationDisable();
-        excitation_freq_index = buffer[0];
-        // restart if need
-        if (is_exc_running) excitationEnable();
+
+            set_excitation_frequency(buffer[0]);
     } else {
         dbg("DBG: SET EXCITATION FREQ: index %d is INVALID !\n");
     }
@@ -493,6 +508,7 @@ i2c_slaveSM_command_t commands[] = {
     {I2C_GET_VERSION,            0, i2c_get_version},
     {I2C_SLEEP,                  0, i2c_sleep},
     {I2C_SET_ADDRESS,            1, i2c_set_address},
+    {I2C_SET_EXCIT_FREQ,         1, i2c_set_excit_freq_idx},
 #if DEBUG
     {I2C_DEBUG_ENABLE_ADC,       0, i2c_debug_enable_adc},
     {I2C_DEBUG_POWER_ON,         0, i2c_debug_power_on},
