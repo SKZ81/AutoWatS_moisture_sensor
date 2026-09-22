@@ -510,9 +510,14 @@ int main (void) {
         address = I2C_ADDRESS_BASE;
     }
 
-    dbg("I²C moisture sensor, address = 0x%02x\n (boot cause=0x%02x)", address, reboot_cause);
-    dbg("Excitation frequency: %s\n", frequencies_txt[excitation_freq_index]);
+    printf_P(PSTR(("I²C moisture sensor, address = 0x%02x\n (excit. freq idx=%u\n", address, excitation_freq_index);
+    dbg("  - boot cause: %s%s%s%s\n",
+        reboot_cause & WDRF  ? PSTR("WatchDog") : "",
+        reboot_cause & BORF  ? PSTR("BrownOut") : "",
+        reboot_cause & EXTRF ? PSTR("External") : "",
+        reboot_cause & PORF  ? PSTR("PowerOn")  : "");
 
+    dbg("Excitation frequency: %s\n\n", frequencies_txt[excitation_freq_index]);
 
     dbg("Set power saving params...\n");
     setupPowerSaving();
@@ -531,7 +536,6 @@ int main (void) {
                      commands, sizeof(commands)/sizeof(i2c_slaveSM_command_t),
                      i2c_buffer, I2C_BUFFER_SIZE);
 
-    dbg("Enter loop.\n");
     while(1) {
         dbg("Loop...\n");
 
@@ -556,6 +560,7 @@ int main (void) {
 
 
         if (reset_requested) {
+            dbg(" !!! Reboot\n");
             reset_requested = false;
             reset();
         }
