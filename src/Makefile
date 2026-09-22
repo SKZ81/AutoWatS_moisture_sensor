@@ -172,7 +172,7 @@ flash: $(HEX)
 
 eeprom:
 
-	printf '%b' '\xFF\x'$$(printf '%02X' $$(( $(I2C_ADDRESS) )))'\x'$$(printf '%02X' $$(( $(EXCITATION_FREQ) ))) | \
+	printf '%b' '\xFF\xFF\x'$$(printf '%02X' $$(( $(I2C_ADDRESS) )))'\x'$$(printf '%02X' $$(( $(EXCITATION_FREQ) ))) | \
 	$(AVRDUDE) -U eeprom:w:-:r
 
 # ------------------------------------------------------------------------------
