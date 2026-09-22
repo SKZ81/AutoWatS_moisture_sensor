@@ -50,6 +50,8 @@
 #define I2C_GET_VERSION            0x04
 #define I2C_SLEEP                  0x05
 // #define I2C_SET_ADDRESS         0x06
+
+#if DEBUG
 #define I2C_DEBUG_ENABLE_ADC       0x80
 #define I2C_DEBUG_POWER_ON         0x81
 #define I2C_DEBUG_SET_EXCIT_FREQ   0x82
@@ -58,7 +60,7 @@
 #define I2C_DEBUG_STOP_EXITATION   0x85
 #define I2C_DEBUG_POWER_OFF        0x86
 #define I2C_DEBUG_DISABLE_ADC      0x87
-
+#endif
 
 #define I2C_NONE                   0xFF
 
@@ -389,6 +391,16 @@ uint8_t i2c_sleep(uint8_t *buffer, uint8_t buffer_len) {
 // -------------------- I²C DEBUG commands --------------------
 #if DEBUG
 
+char* frequencies_txt[] = {
+    "100  kHz",
+    "250  kHz",
+    "500  kHz",
+    "800  kHz",
+    "1    MHz",
+    "2    MHz",
+    "4    MHz"
+};
+
 uint8_t i2c_debug_enable_adc(uint8_t *buffer, uint8_t buffer_len) {
     dbg("DBG : ENABLE ADC\n");
     enableADC();
@@ -400,18 +412,6 @@ uint8_t i2c_debug_power_on(uint8_t *buffer, uint8_t buffer_len) {
     powerOn();
     return 0;
 }
-
-#if DEBUG
-    char* frequencies_txt[] = {
-        "100  kHz",
-        "250  kHz",
-        "500  kHz",
-        "800  kHz",
-        "1    MHz",
-        "2    MHz",
-        "4    MHz"
-    };
-#endif
 
 uint8_t i2c_debug_set_exitation_freq(uint8_t *buffer, uint8_t buffer_len) {
     if (buffer[0] < sizeof(ocr0a_values)) {
