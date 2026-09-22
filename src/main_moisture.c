@@ -44,6 +44,7 @@
 #define I2C_BUFFER_SIZE            4
 
 #define I2C_GET_CAPACITANCE        0x00
+#define I2C_SET_ADDRESS            0x01
 #define I2C_GET_LIGHT              0x04
 #define I2C_RESET                  0x06
 #define I2C_GET_VERSION            0x07
@@ -312,10 +313,9 @@ inline static void watchdogEnable() {
     WDTCSR = _BV(WDE);
 }
 
-// TODO: This is not the valid checking !
-// static inline bool twiIsValidAddress(unsigned char adr) {
-//     return (adr >= I2C_ADDRESS_BASE) && (adr < I2C_ADDRESS_BASE + 8);
-// }
+static inline bool twiIsValidAddress(unsigned char adr) {
+    return (adr > 0x00) && (adr < 0xF0);
+}
 
 #define reset() {watchdogEnable(); while(1) {}}
 
@@ -378,6 +378,18 @@ uint8_t i2c_get_version(uint8_t *buffer, uint8_t buffer_len) {
 uint8_t i2c_reset(uint8_t *buffer, uint8_t buffer_len) {
     dbg("I²C: RESET\n");
     reset_requested = true;
+    return 0;
+}
+
+uint8_t i2c_set_address(uint8_t *buffer, uint8_t buffer_len) {
+    uint8_t address = buffer[0];
+    if (twiIsValidAddress(address)) {
+        dbg("I²C: SET ADDR 0x%02x\n", address);
+        eeprom_update_byte(EEPROM_LOCATION_I2C_ADDRESS, address);
+        reset_requested = true;
+    } else {
+        dbg("I²C: INVALID ADDR 0x%02x\n", address);
+    }
     return 0;
 }
 
@@ -481,6 +493,7 @@ i2c_slaveSM_command_t commands[] = {
     {I2C_RESET,                  0, i2c_reset},
     {I2C_GET_VERSION,            0, i2c_get_version},
     {I2C_SLEEP,                  0, i2c_sleep},
+    {I2C_SET_ADDRESS,            1, i2c_set_address},
 #if DEBUG
     {I2C_DEBUG_ENABLE_ADC,       0, i2c_debug_enable_adc},
     {I2C_DEBUG_POWER_ON,         0, i2c_debug_power_on},

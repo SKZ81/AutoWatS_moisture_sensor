@@ -47,6 +47,20 @@ void read_uint8(uint8_t *buffer) {
     buffer[0] = uint8_t(l&0xFF);
 }
 
+void read_i2c_addr(uint8_t *buffer) {
+    long l = -1;
+    while (l<1 || l>127) {
+        Serial.print(F("Enter I²C adress ([1..127], decimal base) : "));
+        l = Serial.readString().toInt();
+    }
+    Serial.print(F("I²C addr : 0x"));
+    Serial.println(l, HEX);
+    Serial.print(F(" ("));
+    Serial.println(l, DEC);
+    Serial.print(F(")"));
+    buffer[0] = uint8_t(l&0xFF);
+}
+
 void read_uint24(uint8_t *buffer) {
     long l = -9000000;
     while (l<-8388608 || l>8388607) {
@@ -85,13 +99,14 @@ void read_float(uint8_t *buffer) {
 //     Serial.println(l, DEC);
 //     buffer[0] = uint8_t(l&0xFF);
 // }
+#define I2C_GET_CAPACITANCE        0x00
+#define I2C_SET_ADDRESS            0x01
+#define I2C_GET_LIGHT              0x04
+#define I2C_RESET                  0x06
+#define I2C_GET_VERSION            0x07
+#define I2C_SLEEP                  0x08
+#define I2C_WAKEUP                 0x10
 
-#define I2C_WAKEUP                 0x00
-#define I2C_GET_CAPACITANCE        0x01
-#define I2C_GET_LIGHT              0x02
-#define I2C_RESET                  0x03
-#define I2C_GET_VERSION            0x04
-#define I2C_SLEEP                  0x05
 #define I2C_DEBUG_ENABLE_ADC       0x80
 #define I2C_DEBUG_POWER_ON         0x81
 #define I2C_DEBUG_SET_EXCIT_FREQ   0x82
@@ -103,20 +118,21 @@ void read_float(uint8_t *buffer) {
 
 
 command_t commands[] = {
-    {I2C_WAKEUP,                 0, no_read,   0},
-    {I2C_GET_CAPACITANCE,        0, no_read,   2},
-    {I2C_GET_LIGHT,              0, no_read,   2},
-    {I2C_RESET,                  0, no_read,   0},
-    {I2C_GET_VERSION,            0, no_read,   1},
-    {I2C_SLEEP,                  0, no_read,   0},
-    {I2C_DEBUG_ENABLE_ADC,       0, no_read,   0},
-    {I2C_DEBUG_POWER_ON,         0, no_read,   0},
-    {I2C_DEBUG_SET_EXCIT_FREQ,   1, read_freq, 0},
-    {I2C_DEBUG_START_EXCITATION, 0, no_read,   0},
-    {I2C_DEBUG_CAP_MEASUREMENT,  0, no_read,   0},
-    {I2C_DEBUG_STOP_EXITATION,   0, no_read,   0},
-    {I2C_DEBUG_POWER_OFF,        0, no_read,   0},
-    {I2C_DEBUG_DISABLE_ADC,      0, no_read,   0}
+    {I2C_WAKEUP,                 0, no_read,       0},
+    {I2C_GET_CAPACITANCE,        0, no_read,       2},
+    {I2C_GET_LIGHT,              0, no_read,       2},
+    {I2C_RESET,                  0, no_read,       0},
+    {I2C_GET_VERSION,            0, no_read,       1},
+    {I2C_SLEEP,                  0, no_read,       0},
+    {I2C_SET_ADDRESS,            1, read_i2c_addr, 0},
+    {I2C_DEBUG_ENABLE_ADC,       0, no_read,       0},
+    {I2C_DEBUG_POWER_ON,         0, no_read,       0},
+    {I2C_DEBUG_SET_EXCIT_FREQ,   1, read_freq,     0},
+    {I2C_DEBUG_START_EXCITATION, 0, no_read,       0},
+    {I2C_DEBUG_CAP_MEASUREMENT,  0, no_read,       0},
+    {I2C_DEBUG_STOP_EXITATION,   0, no_read,       0},
+    {I2C_DEBUG_POWER_OFF,        0, no_read,       0},
+    {I2C_DEBUG_DISABLE_ADC,      0, no_read,       0}
 };
 
 
@@ -141,6 +157,7 @@ void loop(void) {
 
     Serial.println();
     if (sensor_address > 127)
+    Serial.println(F(" * - Change sensor address"));
     Serial.println(F("__________________________"));
     Serial.print  (F("**** Sensor address : 0x"));
     Serial.println(sensor_address, HEX);
@@ -150,7 +167,7 @@ void loop(void) {
     Serial.println(F(" 3 - RESET"));
     Serial.println(F(" 4 - GET_VERSION"));
     Serial.println(F(" 5 - SLEEP"));
-    Serial.println(F(" 6 - Set target address"));
+    Serial.println(F(" 7 - SET ADDRESS"));
     Serial.println(F(" ---- Debug ----"));
     Serial.println(F(" A - ENABLE ADC"));
     Serial.println(F(" B - POWER ON"));
@@ -167,18 +184,8 @@ void loop(void) {
 
     uint8_t cmd = 0xFF;
 
-    if (char_cmd == '6') {
-        long l = -1;
-        while (l < 1 || l > 127) {
-            Serial.print(F("Enter uint8_t value ([1..127], decimal base) : "));
-            l = Serial.readString().toInt();
-        }
-        Serial.print(F("Read address : 0x"));
-        Serial.print(l, HEX);
-        Serial.print(F(" ("));
-        Serial.print(l, DEC);
-        Serial.println(F(")"));
-        sensor_address = uint8_t(l&0xFF);
+    if (char_cmd == '*') {
+        read_i2c_addr(&sensor_address);
         return;
     }
 
