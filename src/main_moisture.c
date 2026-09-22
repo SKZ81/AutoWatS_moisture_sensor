@@ -20,8 +20,6 @@
     #define dbg(x, ...)
 #endif
 
-#define FIRMWARE_VERSION 0x01 // v0.1
-
 #define LED_K PC2
 #define LED_K_PCINT PCINT10
 #define LED_A PC3
@@ -66,6 +64,8 @@
 
 #define I2C_NONE                   0xFF
 
+#define EEPROM_LOCATION_FW_VERSION_MAJOR  (uint8_t*)0x00
+#define EEPROM_LOCATION_FW_VERSION_MINOR  (uint8_t*)0x01
 #define EEPROM_LOCATION_I2C_ADDRESS       (uint8_t*)0x02
 #define EEPROM_LOCATION_EXC_FREQ_IDX      (uint8_t*)0x03
 
@@ -380,10 +380,14 @@ uint8_t i2c_get_light(uint8_t *buffer, uint8_t buffer_len) {
     return sizeof(uint16_t);
 }
 
+uint8_t fw_version_major = 0xFF;
+uint8_t fw_version_minor = 0xFF;
+
 uint8_t i2c_get_version(uint8_t *buffer, uint8_t buffer_len) {
-    dbg("I²C: GET VERSION: 0x%x\n", FIRMWARE_VERSION);
-    buffer[0] = FIRMWARE_VERSION;
-    return sizeof(uint8_t);
+    dbg("I²C: GET FW VERS: 0x%x . 0x%x\n", fw_version_major, fw_version_minor);
+    buffer[0] = fw_version_major;
+    buffer[1] = fw_version_minor;
+    return 2 * sizeof(uint8_t);
 }
 
 uint8_t i2c_reset(uint8_t *buffer, uint8_t buffer_len) {
@@ -554,13 +558,18 @@ int main (void) {
         excitation_freq_index = DEFAULT_EXCITATION_FREQ_INDEX;
     }
 
-    printf_P(PSTR(("I²C moisture sensor, address = 0x%02x\n (excit. freq idx=%u\n", excitation_freq_index);
-    dbg("boot cause: %s%s%s%s\n"),
-        reboot_cause & WDRF  ? "WatchDog",
-        reboot_cause & BORF  ? "BrownOut",
-        reboot_cause & EXTRF ? "External",
-        reboot_cause & PORF  ? "PowerOn");
-    dbg("Excitation frequency: %s\n\n", frequencies_txt[excitation_freq_index]);
+    fw_version_major = eeprom_read_byte(EEPROM_LOCATION_FW_VERSION_MAJOR);
+    fw_version_minor = eeprom_read_byte(EEPROM_LOCATION_FW_VERSION_MINOR);
+
+    printf_P(PSTR("I²C moisture sensor v%u.%u\n"), fw_version_major, fw_version_minor);
+    printf_P(PSTR("  - address = 0x%02x\n  - excit. freq idx=%u\n"),
+                  address, excitation_freq_index);
+    dbg("  - Excitation frequency: %s\n\n", frequencies_txt[excitation_freq_index]);
+    dbg("  - boot cause: %s%s%s%s\n",
+        reboot_cause & WDRF  ? PSTR("WatchDog") : "",
+        reboot_cause & BORF  ? PSTR("BrownOut") : "",
+        reboot_cause & EXTRF ? PSTR("External") : "",
+        reboot_cause & PORF  ? PSTR("PowerOn")  : "");
 
     dbg("Set power saving params...\n");
     setupPowerSaving();
