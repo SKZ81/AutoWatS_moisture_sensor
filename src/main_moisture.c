@@ -51,6 +51,7 @@
 #define I2C_SLEEP                  0x08
 #define I2C_WAKEUP                 0x10
 #define I2C_SET_EXCIT_FREQ         0x11
+#define I2C_GET_EXCIT_FREQ         0x12
 
 #if DEBUG
 #define I2C_DEBUG_ENABLE_ADC       0x80
@@ -411,6 +412,12 @@ uint8_t i2c_set_excit_freq_idx(uint8_t *buffer, uint8_t buffer_len) {
     return 0;
 }
 
+uint8_t i2c_get_excit_freq_idx(uint8_t *buffer, uint8_t buffer_len) {
+    dbg("I²C: GET EXCIT. FREQ. IDX %u\n", excitation_freq_index);
+    buffer[0] = excitation_freq_index;
+    return sizeof(uint8_t);
+}
+
 uint8_t i2c_sleep(uint8_t *buffer, uint8_t buffer_len) {
     dbg("I²C: SLEEP\n");
     sleep_requested = true;
@@ -510,6 +517,7 @@ i2c_slaveSM_command_t commands[] = {
     {I2C_SLEEP,                  0, i2c_sleep},
     {I2C_SET_ADDRESS,            1, i2c_set_address},
     {I2C_SET_EXCIT_FREQ,         1, i2c_set_excit_freq_idx},
+    {I2C_GET_EXCIT_FREQ,         0, i2c_get_excit_freq_idx},
 #if DEBUG
     {I2C_DEBUG_ENABLE_ADC,       0, i2c_debug_enable_adc},
     {I2C_DEBUG_POWER_ON,         0, i2c_debug_power_on},
